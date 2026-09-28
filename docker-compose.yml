@@ -1,0 +1,102 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: relay-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-relay}
+      POSTGRES_USER: ${POSTGRES_USER:-relay}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-relay}
+    ports:
+      - "5432:5432"
+    volumes:
+      - relay_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-relay}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: relay-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: .
+    container_name: relay-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-relay}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-relay}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-relay}
+      SPRING_DATA_REDIS_HOST: redis
+      RELAY_DOCS_URL: ${RELAY_DOCS_URL:-http://localhost:3001}
+      RELAY_DASHBOARD_URL: ${RELAY_DASHBOARD_URL:-http://localhost:3000}
+      SPRING_PROFILES_ACTIVE: ${RELAY_BACKEND_PROFILE:-}
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/actuator/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  web:
+    build: ./web
+    container_name: relay-web
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      RELAY_API_URL: http://backend:8080
+    ports:
+      - "3000:3000"
+
+  docs:
+    build:
+      context: ./docs
+      args:
+        NEXT_PUBLIC_SITE_URL: ${RELAY_DOCS_URL:-http://localhost:3001}
+    container_name: relay-docs
+    ports:
+      - "3001:3001"
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: relay-prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    container_name: relay-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
+      - relay_grafana_data:/var/lib/grafana
+    ports:
+      - "3002:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  relay_pgdata:
+  relay_grafana_data:

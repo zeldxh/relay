@@ -1,0 +1,10 @@
+target
+web
+docs
+sdk
+.git
+.github
+.mvn
+mvnw
+mvnw.cmd
+*.md
