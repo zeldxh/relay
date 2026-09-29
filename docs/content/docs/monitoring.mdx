@@ -1,0 +1,152 @@
+---
+title: Monitoring
+description: Prometheus and Grafana, what the dashboard actually shows, and how to query the metrics yourself
+---
+
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+
+`docker compose up` starts Prometheus and Grafana alongside everything else —
+pre-wired together, no setup required. This page is the part that isn't just
+"it's running": what the dashboard panels mean, what's underneath them, and
+how to ask your own questions instead of only the ones already on the screen.
+
+## Getting in
+
+Grafana is at [`localhost:3002`](http://localhost:3002). Log in with
+`admin` / `admin` (or whatever `GRAFANA_ADMIN_PASSWORD` is set to in your
+`.env`). Open **Dashboards → relay** — it's provisioned automatically, you
+don't need to create or import anything.
+
+Prometheus itself is at [`localhost:9090`](http://localhost:9090) if you want
+to query it directly instead of through Grafana — see
+[Querying it yourself](#querying-it-yourself) below.
+
+## What the dashboard shows
+
+<Tabs items={['Delivery attempts by outcome', 'Delivery success rate', 'Avg delivery duration', 'Rate-limited attempts', 'HTTP request rate by route', 'JVM heap used', 'Hikari active connections']}>
+<Tab value="Delivery attempts by outcome">
+
+One line per outcome — `success`, `failure`, `rate_limited` — showing how many
+delivery attempts per second are landing in each bucket. A healthy system is
+almost entirely `success` with an occasional `failure` blip during a retry
+backoff window. A sustained rise in `failure` usually means a specific
+endpoint is down, not relay itself — check
+[`GET /deliveries?status=FAILED`](/docs/api-reference/deliveries) for which
+one.
+
+</Tab>
+<Tab value="Delivery success rate">
+
+`success / (success + failure + rate_limited)` over the last 5 minutes, as a
+percentage. Green above 99%, yellow above 90%, red below that. This is the
+one number worth putting on a wall — everything else is for diagnosing *why*
+it moved.
+
+</Tab>
+<Tab value="Avg delivery duration">
+
+Average wall-clock time per delivery attempt (the HTTP call to the receiving
+endpoint, signing included), in seconds. A creeping average usually means a
+specific slow endpoint is dragging the mean up — this panel alone can't tell
+you which one; cross-reference with
+[`GET /deliveries`](/docs/api-reference/deliveries) filtered by endpoint.
+
+</Tab>
+<Tab value="Rate-limited attempts">
+
+How often the [per-endpoint rate limiter](/docs/rate-limits-and-retries)
+itself is the reason a delivery didn't go out yet (distinct from the endpoint
+rejecting it). Should normally sit at zero — a nonzero value means some
+endpoint's `rateLimitPerSecond` is set lower than the traffic actually headed
+its way.
+
+</Tab>
+<Tab value="HTTP request rate by route">
+
+Every inbound API call, grouped by route and status code — the dashboard's
+own traffic, not delivery traffic to your endpoints. Useful for noticing if
+something's hammering `/deliveries` or `/organizations` (see
+[rate limits](/docs/api-reference#rate-limits) on the latter) far more than
+expected.
+
+</Tab>
+<Tab value="JVM heap used">
+
+The backend's heap usage. Only worth watching if you're diagnosing a memory
+problem — for the traffic levels this project is built for, it should be flat
+and unremarkable.
+
+</Tab>
+<Tab value="Hikari active connections">
+
+Active Postgres connections out of the pool. If this pins at the pool's max
+and stays there, queries are queuing behind it — a sign the database or a
+long-running query is the actual bottleneck, not the app.
+
+</Tab>
+</Tabs>
+
+## The metrics behind it
+
+Everything above comes from the backend's `/actuator/prometheus` endpoint —
+public, no credentials needed. The relay-specific ones:
+
+| Metric | Type | Labels | What it is |
+|---|---|---|---|
+| `relay_delivery_attempts_total` | counter | `outcome` (`success`\|`failure`\|`rate_limited`) | Incremented once per delivery attempt |
+| `relay_delivery_duration_seconds` | summary | — | Time per attempt; exposed as `_count`, `_sum`, and `_max` |
+
+Plus Spring Boot's standard instrumentation, already on by default:
+`http_server_requests_seconds_count` (labeled `uri`, `method`, `status`),
+`jvm_memory_used_bytes` (labeled `area`, `id`), `hikaricp_connections_active`,
+and a lot more under the hood if you want to poke around — anything Micrometer
+auto-instruments shows up at that same endpoint.
+
+## Querying it yourself
+
+The dashboard panels are just PromQL queries — nothing stops you from writing
+your own, either in Prometheus's own UI (**Graph** tab at `localhost:9090`)
+or Grafana's **Explore** view (left sidebar, compass icon).
+
+A few to start from:
+
+```text
+# success rate over the last hour instead of 5 minutes
+sum(rate(relay_delivery_attempts_total{outcome="success"}[1h]))
+  / sum(rate(relay_delivery_attempts_total[1h]))
+
+# p99 delivery duration (the dashboard only shows the average)
+histogram_quantile(0.99, rate(relay_delivery_duration_seconds_bucket[5m]))
+
+# slowest routes by average request duration
+topk(5, rate(http_server_requests_seconds_sum[5m]) / rate(http_server_requests_seconds_count[5m]))
+```
+
+<Callout type="info" title="p99 needs one config change">
+`histogram_quantile` requires bucketed histogram data, which
+`relay_delivery_duration_seconds` doesn't currently export (it's a plain
+summary — count/sum/max only). Add
+`management.metrics.distribution.percentiles-histogram.relay.delivery.duration=true`
+to `application.properties` to get real percentile buckets if you need them.
+</Callout>
+
+## Alerting
+
+Grafana can alert on any of this — Alerting → Alert rules → New rule, pick a
+query (e.g. the success-rate one above), and a condition (e.g. below `0.9` for
+5 minutes) — but nothing is configured out of the box, and no contact point
+(email, Slack, webhook) is wired up either. Setting up alerting for a real
+deployment is worth doing; this project just doesn't make that decision for
+you, since it depends entirely on where you want to be notified.
+
+## Customizing
+
+- `monitoring/prometheus.yml` — scrape config. Add more `scrape_configs`
+  entries here to monitor additional services.
+- `monitoring/grafana/dashboards/relay.json` — the dashboard itself. Edit it
+  directly, or change it in the Grafana UI and export the JSON back into this
+  file (UI changes don't persist otherwise — the file is what gets
+  provisioned on every restart).
+- `monitoring/grafana/provisioning/` — the datasource and dashboard-loading
+  config; you shouldn't need to touch this unless you're adding a second
+  datasource entirely.

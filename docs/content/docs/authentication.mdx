@@ -1,0 +1,42 @@
+---
+title: Authentication
+description: API keys for integrations, session cookies for the dashboard
+---
+
+Relay has two separate credential types that authenticate against the same
+resource endpoints (`/endpoints`, `/topics`, `/deliveries`, `/audit-logs`) — pick
+whichever fits what's calling.
+
+## API keys
+
+The credential for scripts, servers, and the SDK. Issued once, when an
+organization is created (`POST /organizations` or `POST /auth/signup`), and never
+shown again — only its SHA-256 hash is stored, so if you lose it you register a
+new organization.
+
+Send it as a bearer token on every request:
+
+```bash
+curl http://localhost:8080/endpoints \
+  -H "Authorization: Bearer relay_3f1c...redacted"
+```
+
+<Callout type="warn" title="Treat it like a password">
+Anyone with your API key can read and modify everything in your organization.
+Don't commit it, don't put it in client-side code, and don't log it.
+</Callout>
+
+## Dashboard sessions
+
+The dashboard (the Next.js app in `web/`) never holds your raw API key in the
+browser. Instead, `POST /auth/login` and `POST /auth/signup` set an httpOnly,
+`SameSite=Lax` session cookie (backed by Redis, 7-day TTL), and every dashboard
+request authenticates with that cookie instead. `POST /auth/logout` revokes the
+session server-side.
+
+This only applies to organizations that were created with dashboard credentials
+(via `/auth/signup`) — an organization created through the bare `POST
+/organizations` has no email/password and can only authenticate with its API key.
+
+See the [Auth API reference](/docs/api-reference/auth) for the exact request/response
+shapes.

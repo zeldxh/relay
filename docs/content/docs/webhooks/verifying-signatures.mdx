@@ -1,0 +1,71 @@
+---
+title: Verifying signatures
+description: Confirming a webhook actually came from relay
+---
+
+Every delivery — including the verification ping — is signed with the
+endpoint's own secret (returned once, from `POST /endpoints`). Verify it before
+trusting the request body.
+
+## The scheme
+
+```
+signature = hex(HMAC-SHA256(secret, rawRequestBodyBytes))
+```
+
+Sent as the `X-Relay-Signature` header, as a lowercase hex string. It's computed
+over the **exact raw bytes** of the request body — not a re-serialized version of
+the parsed JSON, which can differ in key order or whitespace and would produce a
+different signature.
+
+## Node
+
+Using the [SDK](/docs/sdk):
+
+```ts
+import { verifyWebhookSignature } from "@zeldxh/relay-sdk";
+
+const signature = req.header("x-relay-signature");
+if (!signature || !verifyWebhookSignature(rawBody, signature, endpointSecret)) {
+  return res.sendStatus(401);
+}
+```
+
+`rawBody` must be the raw UTF-8 text of the request — with Express this means
+using `express.text()` instead of `express.json()` on that route, since
+`express.json()` hands you an already-parsed object with no byte-for-byte
+relationship to what was signed.
+
+Without the SDK, using Node's built-in `crypto`:
+
+```ts
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+function verify(rawBody: string, signature: string, secret: string): boolean {
+  const expected = createHmac("sha256", secret).update(rawBody, "utf8").digest("hex");
+  const a = Buffer.from(expected, "utf8");
+  const b = Buffer.from(signature, "utf8");
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+```
+
+<Callout type="info" title="Constant-time comparison">
+Compare with something like `timingSafeEqual` rather than `===`. A naive string
+comparison exits early on the first mismatched character, which leaks timing
+information an attacker could use to guess the correct signature one byte at a
+time.
+</Callout>
+
+## Other languages
+
+The scheme is standard HMAC-SHA256 over the raw request body, hex-encoded —
+any HTTP framework's usual approach to webhook verification applies:
+
+```python
+import hashlib
+import hmac
+
+def verify(raw_body: bytes, signature: str, secret: str) -> bool:
+    expected = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature)
+```

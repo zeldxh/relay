@@ -1,0 +1,14 @@
+---
+title: Overview
+description: Owning a webhook endpoint safely
+---
+
+Two things to get right when you own an endpoint relay delivers to:
+
+<Cards>
+  <Card title="Endpoint verification" description="Prove you control the URL before relay will ever send it anything." href="/docs/webhooks/endpoint-verification" />
+  <Card title="Verifying signatures" description="Confirm each individual request actually came from relay." href="/docs/webhooks/verifying-signatures" />
+</Cards>
+
+Verification happens once, when you register the endpoint. Signature checking
+happens on every request your handler receives, for the lifetime of the endpoint.

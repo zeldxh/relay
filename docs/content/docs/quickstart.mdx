@@ -1,0 +1,129 @@
+---
+title: Quickstart
+description: Get an API key and deliver your first event
+---
+
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+
+This walks through the full loop against a locally running relay instance on
+`http://localhost:8080` — see [Installation](/docs/installation) first if you
+haven't got the stack running yet. Every request below needs your API key as a
+bearer token, except the first one, which is how you get it.
+
+<Steps>
+<Step>
+
+### Create an organization
+
+```bash
+curl -X POST http://localhost:8080/organizations \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Acme Corp"}'
+```
+
+```json
+{
+  "id": 1,
+  "name": "Acme Corp",
+  "apiKey": "relay_3f1c...redacted",
+  "createdAt": "2026-01-01T00:00:00Z"
+}
+```
+
+<Callout title="Save the key now">
+`apiKey` is only ever returned once. If you lose it, register a new organization —
+there's no recovery endpoint. If you also want dashboard login (email/password),
+use [`POST /auth/signup`](/docs/api-reference/auth) instead, which does the same
+thing plus sets up credentials.
+</Callout>
+
+</Step>
+<Step>
+
+### Register and verify an endpoint
+
+```bash
+export RELAY_API_KEY=relay_3f1c...redacted
+
+curl -X POST http://localhost:8080/endpoints \
+  -H "Authorization: Bearer $RELAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "orders-webhook", "url": "https://example.com/hooks/orders"}'
+```
+
+This returns an `id` and a `secret` — save the secret, you'll need it to verify
+signatures later. The endpoint starts out unverified; relay won't deliver anything
+to it until you prove you control the URL:
+
+```bash
+curl -X POST http://localhost:8080/endpoints/1/verify \
+  -H "Authorization: Bearer $RELAY_API_KEY"
+```
+
+This sends a signed test payload to your URL and expects a 2xx response. See
+[Endpoint verification](/docs/webhooks/endpoint-verification) for what your
+handler needs to do.
+
+</Step>
+<Step>
+
+### Create a topic and subscribe the endpoint
+
+```bash
+curl -X POST http://localhost:8080/topics \
+  -H "Authorization: Bearer $RELAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "order.created"}'
+
+curl -X POST http://localhost:8080/topics/1/subscriptions \
+  -H "Authorization: Bearer $RELAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"endpointId": 1}'
+```
+
+An unverified endpoint gets rejected here with `409 Conflict`.
+
+</Step>
+<Step>
+
+### Publish an event
+
+```bash
+curl -X POST http://localhost:8080/topics/1/events \
+  -H "Authorization: Bearer $RELAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"payload": {"orderId": 42, "total": 19.99}}'
+```
+
+```json
+{ "eventId": 1, "deliveryIds": [1] }
+```
+
+Your endpoint should receive a signed `POST` within moments. If it doesn't, check
+delivery status:
+
+```bash
+curl "http://localhost:8080/deliveries?status=FAILED" \
+  -H "Authorization: Bearer $RELAY_API_KEY"
+```
+
+</Step>
+</Steps>
+
+## Using the SDK instead
+
+The same flow with the [Node SDK](/docs/sdk):
+
+```ts
+import { RelayClient } from "@zeldxh/relay-sdk";
+
+const relay = new RelayClient({ apiKey: process.env.RELAY_API_KEY! });
+
+const endpoint = await relay.createEndpoint("orders-webhook", "https://example.com/hooks/orders");
+await relay.verifyEndpoint(endpoint.id);
+
+const topic = await relay.createTopic("order.created");
+await relay.subscribe(topic.id, endpoint.id);
+
+await relay.publish(topic.id, { orderId: 42, total: 19.99 });
+```

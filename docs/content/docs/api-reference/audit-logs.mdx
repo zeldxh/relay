@@ -1,0 +1,34 @@
+---
+title: Audit logs
+description: The organization's action history
+---
+
+`GET /audit-logs` — requires authentication, scoped to the calling organization.
+
+```bash
+curl "http://localhost:8080/audit-logs?page=0&size=20" \
+  -H "Authorization: Bearer $RELAY_API_KEY"
+```
+
+Paginated the same way as [deliveries](/docs/api-reference/deliveries):
+
+```json
+{
+  "content": [
+    {
+      "id": 1,
+      "action": "endpoint.verified",
+      "details": "endpointId=1",
+      "createdAt": "2026-01-01T00:00:00Z"
+    }
+  ],
+  "totalElements": 1,
+  "totalPages": 1,
+  "number": 0,
+  "size": 20
+}
+```
+
+`action` is one of: `organization.created`, `organization.signed_up`,
+`organization.logged_in`, `endpoint.created`, `endpoint.verified`,
+`topic.created`, `subscription.created`, `delivery.replayed`.

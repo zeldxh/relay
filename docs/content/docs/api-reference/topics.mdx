@@ -1,0 +1,81 @@
+---
+title: Topics
+description: Topics, subscriptions and publishing events
+---
+
+All routes below require authentication and are scoped to the calling
+organization.
+
+## Create a topic
+
+`POST /topics`
+
+```bash
+curl -X POST http://localhost:8080/topics \
+  -H "Authorization: Bearer $RELAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "order.created"}'
+```
+
+| Field | Type | Required |
+|---|---|---|
+| `name` | string | yes, non-blank, unique within the organization |
+
+**201 Created**
+
+```json
+{ "id": 1, "name": "order.created", "createdAt": "2026-01-01T00:00:00Z" }
+```
+
+## List topics
+
+`GET /topics` — every topic owned by the calling organization, not paginated.
+
+## Subscribe an endpoint
+
+`POST /topics/{topicId}/subscriptions`
+
+```bash
+curl -X POST http://localhost:8080/topics/1/subscriptions \
+  -H "Authorization: Bearer $RELAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"endpointId": 1}'
+```
+
+**201 Created**
+
+```json
+{ "id": 1, "topicId": 1, "endpointId": 1, "createdAt": "2026-01-01T00:00:00Z" }
+```
+
+**404** if the topic or endpoint doesn't exist (or belongs to another
+organization). **409 Conflict** if the endpoint isn't
+[verified](/docs/webhooks/endpoint-verification) yet.
+
+## List a topic's subscriptions
+
+`GET /topics/{topicId}/subscriptions`
+
+## Publish an event
+
+`POST /topics/{topicId}/events`
+
+```bash
+curl -X POST http://localhost:8080/topics/1/events \
+  -H "Authorization: Bearer $RELAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"payload": {"orderId": 42, "total": 19.99}}'
+```
+
+| Field | Type | Required |
+|---|---|---|
+| `payload` | any JSON value | yes |
+
+Creates one event and one delivery per subscription on the topic:
+
+```json
+{ "eventId": 1, "deliveryIds": [1, 2] }
+```
+
+An empty `deliveryIds` array means the topic has no subscribers yet — the event
+is still recorded, but nothing gets delivered.

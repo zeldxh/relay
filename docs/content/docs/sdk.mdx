@@ -1,0 +1,93 @@
+---
+title: SDK
+description: Node client for publishing events and verifying webhooks
+---
+
+`@zeldxh/relay-sdk` (in `sdk/` in the monorepo) wraps the full API and provides
+webhook signature verification. It has zero runtime dependencies — built on
+Node 18+'s global `fetch` and `node:crypto`.
+
+<Callout type="info" title="Not published to a registry">
+It's not on npm yet — install it from the workspace (`pnpm add @zeldxh/relay-sdk
+--workspace` from within the monorepo, or reference it via a relative/`file:`
+dependency from outside it) until it is.
+</Callout>
+
+## Setup
+
+```ts
+import { RelayClient } from "@zeldxh/relay-sdk";
+
+const relay = new RelayClient({
+  apiKey: process.env.RELAY_API_KEY!,
+  // defaults to http://localhost:8080
+  baseUrl: process.env.RELAY_BASE_URL,
+});
+```
+
+## Publishing events
+
+```ts
+const topic = await relay.createTopic("order.created");
+
+const endpoint = await relay.createEndpoint("orders-webhook", "https://example.com/hooks/orders");
+await relay.verifyEndpoint(endpoint.id);
+await relay.subscribe(topic.id, endpoint.id);
+
+const { eventId, deliveryIds } = await relay.publish(topic.id, { orderId: 42, total: 19.99 });
+```
+
+## Verifying inbound webhooks
+
+```ts
+import { verifyWebhookSignature } from "@zeldxh/relay-sdk";
+
+app.post("/hooks/orders", express.text({ type: "*/*" }), (req, res) => {
+  const signature = req.header("x-relay-signature");
+  if (!signature || !verifyWebhookSignature(req.body, signature, process.env.ORDERS_ENDPOINT_SECRET!)) {
+    return res.sendStatus(401);
+  }
+
+  const payload = JSON.parse(req.body);
+  res.sendStatus(200);
+});
+```
+
+See [Verifying signatures](/docs/webhooks/verifying-signatures) for why the route
+needs `express.text()` instead of `express.json()`.
+
+## Inspecting and replaying deliveries
+
+```ts
+const failed = await relay.listDeliveries({ status: "FAILED", page: 0, size: 20 });
+for (const delivery of failed.content) {
+  await relay.replayDelivery(delivery.id);
+}
+```
+
+## Errors
+
+Failed requests throw `RelayApiError`, carrying the HTTP `status` and the
+response body as `message`:
+
+```ts
+import { RelayApiError } from "@zeldxh/relay-sdk";
+
+try {
+  await relay.verifyEndpoint(endpoint.id);
+} catch (err) {
+  if (err instanceof RelayApiError && err.status === 422) {
+    console.error("endpoint didn't respond to the verification ping");
+  } else {
+    throw err;
+  }
+}
+```
+
+## Full reference
+
+`RelayClient` methods mirror the [API reference](/docs/api-reference) one-to-one:
+`createTopic`, `listTopics`, `listSubscriptions`, `subscribe`, `publish`,
+`createEndpoint`, `listEndpoints`, `getEndpoint`, `verifyEndpoint`,
+`listDeliveries`, `replayDelivery`. See [`sdk/README.md`](https://github.com/zeldxh/relay/blob/main/sdk/README.md)
+in the repo for the full source-level walkthrough.

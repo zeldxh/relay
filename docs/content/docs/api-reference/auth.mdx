@@ -1,0 +1,89 @@
+---
+title: Auth
+description: Dashboard signup, login, logout and session lookup
+---
+
+These back the dashboard's login screen. See [Authentication](/docs/authentication)
+for how sessions relate to API keys.
+
+## Sign up
+
+`POST /auth/signup` — no authentication required.
+
+```bash
+curl -X POST http://localhost:8080/auth/signup \
+  -H "Content-Type: application/json" \
+  -d '{"organizationName": "Acme Corp", "email": "owner@acme.com", "password": "correct-horse-battery"}'
+```
+
+| Field | Type | Required |
+|---|---|---|
+| `organizationName` | string | yes, non-blank |
+| `email` | string | yes, valid email, unique across all organizations |
+| `password` | string | yes, 8+ characters |
+
+Creates the organization, generates an API key, sets a session cookie, and
+returns:
+
+```json
+{
+  "organizationId": 1,
+  "organizationName": "Acme Corp",
+  "email": "owner@acme.com",
+  "apiKey": "relay_3f1c...redacted"
+}
+```
+
+**409 Conflict** if the email is already registered to an organization.
+
+## Log in
+
+`POST /auth/login` — no authentication required.
+
+```bash
+curl -X POST http://localhost:8080/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "owner@acme.com", "password": "correct-horse-battery"}' \
+  -c cookies.txt
+```
+
+Sets a session cookie and returns the same shape as signup, except `apiKey` is
+always `null` — only its hash is stored, and the dashboard doesn't need the raw
+key since it authenticates with the session cookie from here on:
+
+```json
+{
+  "organizationId": 1,
+  "organizationName": "Acme Corp",
+  "email": "owner@acme.com",
+  "apiKey": null
+}
+```
+
+**401 Unauthorized** for an unknown email, wrong password, or an organization
+with no dashboard credentials (created via the bare `POST /organizations`).
+
+## Log out
+
+`POST /auth/logout` — requires the session cookie.
+
+```bash
+curl -X POST http://localhost:8080/auth/logout -b cookies.txt
+```
+
+Revokes the session server-side (not just client-side) and clears the cookie.
+**204 No Content**.
+
+## Current session
+
+`GET /auth/me` — requires the session cookie.
+
+```bash
+curl http://localhost:8080/auth/me -b cookies.txt
+```
+
+```json
+{ "organizationId": 1, "organizationName": "Acme Corp", "email": "owner@acme.com" }
+```
+
+**401 Unauthorized** if there's no valid session.

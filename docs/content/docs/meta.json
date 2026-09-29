@@ -1,0 +1,15 @@
+{
+  "title": "Relay",
+  "pages": [
+    "index",
+    "installation",
+    "quickstart",
+    "concepts",
+    "authentication",
+    "rate-limits-and-retries",
+    "webhooks",
+    "api-reference",
+    "sdk",
+    "monitoring"
+  ]
+}

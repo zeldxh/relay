@@ -1,0 +1,58 @@
+---
+title: Rate limits & retries
+description: How relay paces deliveries and recovers from failures
+---
+
+## Per-endpoint rate limiting
+
+Every endpoint has a `rateLimitPerSecond` (default `10`, set at creation via
+`POST /endpoints` or update it directly on the endpoint). It's enforced with a
+Redis-backed fixed-window counter, so the limit holds even if relay is running
+multiple instances — a slow or misbehaving endpoint can't get flooded just
+because load is spread across processes.
+
+## Delivery paths
+
+Relay dispatches a delivery two ways, so a single failure mode can't lose it:
+
+- **Fast path** — every new delivery is pushed onto a Redis stream and picked up
+  by a consumer group almost immediately.
+- **Backup poller** — a scheduled job periodically scans for any delivery whose
+  `nextAttemptAt` has passed and is still `PENDING`. This catches anything the
+  fast path missed (a restart between publish and stream processing, a dropped
+  consumer).
+
+## Retry schedule
+
+A failed attempt (non-2xx response, timeout, or connection error) schedules a
+retry with exponential backoff:
+
+```
+delay = min(30s * 2^attemptCount, 1 hour)
+```
+
+| Attempt | Delay before next try |
+|---|---|
+| 1 | 30s |
+| 2 | 1m |
+| 3 | 2m |
+| 4 | 4m |
+| 5 | 8m |
+| 6 | 16m |
+| 7 | 32m |
+| 8 (final) | capped at 1h if reached |
+
+A delivery gets `maxAttempts` tries (default `8`) before it's marked `FAILED` and
+stops retrying on its own.
+
+## Replaying a failed delivery
+
+```bash
+curl -X POST http://localhost:8080/deliveries/42/replay \
+  -H "Authorization: Bearer $RELAY_API_KEY"
+```
+
+Resets `attemptCount` to `0` and `status` to `PENDING` with `nextAttemptAt` set to
+now, so it's picked up on the next cycle with a full retry budget. Only `FAILED`
+deliveries can be replayed — replaying a `PENDING` or `SUCCESS` delivery returns
+`409 Conflict`.

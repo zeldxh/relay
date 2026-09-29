@@ -1,0 +1,66 @@
+---
+title: Endpoints
+description: Registering, listing and verifying endpoints
+---
+
+All routes below require authentication (API key or session cookie) and are
+scoped to the calling organization.
+
+## Create an endpoint
+
+`POST /endpoints`
+
+```bash
+curl -X POST http://localhost:8080/endpoints \
+  -H "Authorization: Bearer $RELAY_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "orders-webhook", "url": "https://example.com/hooks/orders"}'
+```
+
+| Field | Type | Required |
+|---|---|---|
+| `name` | string | yes, non-blank |
+| `url` | string | yes, non-blank |
+| `rateLimitPerSecond` | integer | no, defaults to `10` |
+
+**201 Created**
+
+```json
+{
+  "id": 1,
+  "name": "orders-webhook",
+  "url": "https://example.com/hooks/orders",
+  "secret": "9f2a...redacted",
+  "rateLimitPerSecond": 10,
+  "verified": false,
+  "verifiedAt": null,
+  "createdAt": "2026-01-01T00:00:00Z"
+}
+```
+
+`secret` is shown here and only here — save it, you'll need it to
+[verify signatures](/docs/webhooks/verifying-signatures) on incoming requests.
+
+## List endpoints
+
+`GET /endpoints` — returns every endpoint owned by the calling organization, not
+paginated.
+
+## Get an endpoint
+
+`GET /endpoints/{id}` — **404** if it doesn't exist or belongs to another
+organization.
+
+## Verify an endpoint
+
+`POST /endpoints/{id}/verify`
+
+```bash
+curl -X POST http://localhost:8080/endpoints/1/verify \
+  -H "Authorization: Bearer $RELAY_API_KEY"
+```
+
+Pings the endpoint's URL with a signed test payload. **200 OK** with
+`verified: true` and a `verifiedAt` timestamp on success; **422 Unprocessable
+Entity** if the endpoint doesn't respond with 2xx (including timeouts and
+connection failures). See [Endpoint verification](/docs/webhooks/endpoint-verification).

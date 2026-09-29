@@ -1,0 +1,54 @@
+---
+title: Overview
+description: Conventions shared across every endpoint
+---
+
+## Base URL
+
+Locally, `http://localhost:8080`. There's no hosted instance — you run relay
+yourself (see the [root README](https://github.com/zeldxh/relay)).
+
+## Authentication
+
+Every route below except `POST /organizations`, `/auth/*`, and `/actuator/*`
+requires either an `Authorization: Bearer relay_...` API key or a dashboard
+session cookie. See [Authentication](/docs/authentication).
+
+## Errors
+
+Validation failures return `400` with a Spring-standard problem body. Anything
+else uses the HTTP status that best describes it — `401` (missing/invalid
+credentials), `404` (not found, or found but owned by another organization —
+relay never distinguishes the two, to avoid leaking existence), `409` (conflicting
+state, e.g. replaying a non-`FAILED` delivery), `422` (a downstream call, like
+endpoint verification, failed), `429` (too many requests — see below).
+
+## Rate limits
+
+Two independent limits, both per source IP address, both a fixed window:
+
+| Endpoint(s) | Limit |
+|---|---|
+| `POST /organizations`, `POST /auth/signup` | 5 per minute |
+| `POST /auth/login` | 10 per minute |
+
+These exist to blunt automated signup spam and login brute-forcing on the
+routes anyone can call without credentials — they're separate from
+[per-endpoint delivery rate limits](/docs/rate-limits-and-retries), which are
+about outbound webhook traffic, not the API itself.
+
+## Pagination
+
+`GET /deliveries` and `GET /audit-logs` return a Spring `Page`:
+
+```json
+{
+  "content": [ /* items for this page */ ],
+  "totalElements": 42,
+  "totalPages": 3,
+  "number": 0,
+  "size": 20
+}
+```
+
+Control it with the standard `page` and `size` query parameters.

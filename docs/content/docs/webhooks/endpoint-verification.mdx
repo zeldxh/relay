@@ -1,0 +1,41 @@
+---
+title: Endpoint verification
+description: Proving you control a URL before relay will deliver to it
+---
+
+An endpoint cannot be subscribed to a topic until it's verified. This prevents
+relay from ever sending events to a URL someone registered without actually
+controlling it.
+
+## Triggering verification
+
+```bash
+curl -X POST http://localhost:8080/endpoints/1/verify \
+  -H "Authorization: Bearer $RELAY_API_KEY"
+```
+
+Relay sends a `POST` to the endpoint's URL with a fixed test body and a real
+signature computed with the endpoint's own secret:
+
+```
+POST <your endpoint url>
+X-Relay-Signature: <hmac-sha256 hex digest>
+Content-Type: application/json
+
+{"type":"ping"}
+```
+
+Your handler doesn't need special-case logic for this — if you're already
+[verifying signatures](/docs/webhooks/verifying-signatures) the normal way and
+returning 2xx for anything you accept, the ping passes through the same code path.
+
+## Responses
+
+- **2xx** → the endpoint is marked `verified: true` with a `verifiedAt` timestamp,
+  and can now be subscribed to topics.
+- **Anything else** (non-2xx, timeout, connection refused, DNS failure) →
+  `422 Unprocessable Entity`, and the endpoint stays unverified. Fix whatever's
+  wrong with the URL and call verify again — there's no separate retry mechanism
+  for verification itself.
+
+Subscribing an unverified endpoint returns `409 Conflict`.

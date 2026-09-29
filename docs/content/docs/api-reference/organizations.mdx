@@ -1,0 +1,39 @@
+---
+title: Organizations
+description: Provisioning an organization directly through the API
+---
+
+For provisioning an organization purely for API/integration use, with no
+dashboard login. If you also want dashboard access, use
+[`POST /auth/signup`](/docs/api-reference/auth) instead — it does the same thing
+plus sets up credentials.
+
+## Create an organization
+
+`POST /organizations` — no authentication required.
+
+```bash
+curl -X POST http://localhost:8080/organizations \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Acme Corp"}'
+```
+
+| Field | Type | Required |
+|---|---|---|
+| `name` | string | yes, non-blank |
+
+**201 Created**
+
+```json
+{
+  "id": 1,
+  "name": "Acme Corp",
+  "apiKey": "relay_3f1c...redacted",
+  "createdAt": "2026-01-01T00:00:00Z"
+}
+```
+
+<Callout type="warn" title="apiKey is shown exactly once">
+Only its hash is stored. If it's lost, there's no recovery — register a new
+organization.
+</Callout>

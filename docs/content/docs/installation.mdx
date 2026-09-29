@@ -1,0 +1,188 @@
+---
+title: Installation
+description: Run the whole stack locally
+---
+
+import { Steps, Step } from 'fumadocs-ui/components/steps';
+
+relay is self-hosted — there's no managed/hosted version. Everything below runs
+on your own machine (or wherever you deploy it).
+
+## Quickest path: Docker Compose
+
+If you have Docker and nothing else, this is the whole stack in one command:
+
+```bash
+git clone https://github.com/zeldxh/relay.git
+cd relay
+docker compose up -d --build
+```
+
+That builds and starts all seven services — Postgres, Redis, the backend API
+(`localhost:8080`), the dashboard (`localhost:3000`), this docs site
+(`localhost:3001`), and Prometheus + Grafana for monitoring
+(`localhost:9090` / `localhost:3002`) — wired together on one network, with
+the backend waiting for Postgres/Redis to actually be healthy before it
+starts, and the dashboard waiting for the backend.
+
+<Callout title="Starting from an empty database?">
+Populate it with two sample organizations (with dashboard logins), endpoints
+in both verification states, topics, subscriptions, and deliveries covering
+all three statuses:
+
+```bash
+RELAY_BACKEND_PROFILE=seed docker compose up -d --build
+```
+
+The generated emails, passwords, and API keys are printed to `docker compose
+logs backend`. It's idempotent — restarting with the profile still active just
+logs that seed data already exists rather than erroring or duplicating it.
+</Callout>
+
+Copy `.env.example` to `.env` first if you want to change the Postgres
+credentials or the URLs the backend links to from `GET /` — see
+[Configuration](#configuration) below. Everything has a sensible default, so
+this works with no `.env` file at all.
+
+Once it's up, jump to the [Quickstart](/docs/quickstart) to create an
+organization and deliver your first event.
+
+## Running services individually
+
+Useful for active development — hot reload on the backend and both Next.js
+apps, instead of rebuilding a container image on every change.
+
+### Prerequisites
+
+- **Java 21** and Maven (or use the bundled `./mvnw`)
+- **Node 22+** with [pnpm](https://pnpm.io) (`corepack enable` gets you the right version automatically)
+- **Docker**, for Postgres and Redis
+
+<Steps>
+<Step>
+
+### Clone the repo
+
+```bash
+git clone https://github.com/zeldxh/relay.git
+cd relay
+```
+
+</Step>
+<Step>
+
+### Start Postgres and Redis
+
+```bash
+docker compose up -d postgres redis
+```
+
+This starts Postgres on `localhost:5432` and Redis on `localhost:6379`.
+Everything else below connects to these directly, rather than through compose.
+
+</Step>
+<Step>
+
+### Start the backend
+
+```bash
+./mvnw spring-boot:run
+```
+
+The API comes up on `localhost:8080`. `GET /` returns a small JSON info payload
+if you want to sanity-check it's up. Add `SPRING_PROFILES_ACTIVE=seed` for the
+sample data described above.
+
+</Step>
+<Step>
+
+### Start the dashboard
+
+```bash
+cd web
+pnpm install
+pnpm dev
+```
+
+Comes up on `localhost:3000`. It proxies API calls to the backend through
+`proxy.ts`, so no CORS setup is needed.
+
+</Step>
+<Step>
+
+### Start this docs site (optional)
+
+```bash
+cd docs
+pnpm install
+pnpm dev
+```
+
+Runs on `localhost:3001` — a different port from the dashboard, since both are
+commonly running side by side locally.
+
+</Step>
+</Steps>
+
+### Running it more like production, without Docker
+
+```bash
+# backend — builds a runnable jar and runs it standalone
+./mvnw clean package
+java -jar target/relay-*.jar
+
+# web / docs — production build, then serve it
+cd web   && pnpm build && pnpm start   # or: cd docs && pnpm build && pnpm start
+```
+
+<Callout type="warn" title="Compose is one host, not an orchestrated deployment">
+`docker compose up` gets every service built, wired together, and healthy on
+one machine — genuinely useful for a small self-hosted instance, not just
+local dev. What it doesn't give you: TLS termination, horizontal scaling,
+rolling deploys, or a CI pipeline that builds and pushes these images
+anywhere. Getting from "runs correctly in one command" to "deployed the way a
+team would run it in production" is real work this repo doesn't do for you.
+</Callout>
+
+## Monitoring
+
+`docker compose up` also starts Prometheus and Grafana, pre-wired together —
+see [Monitoring](/docs/monitoring) for what the dashboard shows, the metrics
+underneath it, and how to query them yourself.
+
+## Configuration
+
+The backend reads its config from `src/main/resources/application.properties`.
+The properties most worth knowing about:
+
+| Property | Default | Purpose |
+|---|---|---|
+| `spring.datasource.url` / `.username` / `.password` | `jdbc:postgresql://localhost:5432/relay`, `relay`, `relay` | Postgres connection |
+| `spring.data.redis.host` / `.port` | `localhost`, `6379` | Redis connection |
+| `relay.docs-url` | `http://localhost:3001` | Linked from `GET /` |
+| `relay.dashboard-url` | `http://localhost:3000` | Linked from `GET /` |
+
+Override any of them with the matching environment variable
+(`SPRING_DATASOURCE_URL`, `RELAY_DOCS_URL`, etc.) rather than editing the file,
+if you're running against a different Postgres/Redis or deploying somewhere
+with different hostnames.
+
+Under Docker Compose specifically, `.env.example` documents the variables
+`docker-compose.yml` itself reads: `POSTGRES_DB` / `POSTGRES_USER` /
+`POSTGRES_PASSWORD`, `RELAY_DOCS_URL` / `RELAY_DASHBOARD_URL`,
+`RELAY_BACKEND_PROFILE` (set to `seed` for sample data), and
+`GRAFANA_ADMIN_PASSWORD`. Copy it to `.env` to override any of them — compose
+picks that file up automatically.
+
+## Database migrations
+
+Schema is managed by [Flyway](https://flywaydb.org), not Hibernate — migrations
+live in `src/main/resources/db/migration` and run automatically on startup.
+`spring.jpa.hibernate.ddl-auto=validate` means Hibernate only checks the schema
+Flyway created matches the entity mappings; it never modifies anything itself.
+
+Adding a column or table means adding a new `V{n}__description.sql` file, not
+editing an existing one — Flyway checksums applied migrations and refuses to
+start if one has changed underneath it. If that happens on a database you don't
+care about (a local dev instance, say), the fix is to drop and recreate it
+rather than fight the checksum.

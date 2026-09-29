@@ -1,0 +1,74 @@
+---
+title: Concepts
+description: The data model, and how an event turns into deliveries
+---
+
+## Organization
+
+Every resource belongs to exactly one organization. An API key identifies which
+organization is making a request, and every query is scoped to it — you can never
+see or modify another organization's endpoints, topics, or deliveries.
+
+An organization can optionally have dashboard login credentials (email + password),
+set up via [`/auth/signup`](/docs/api-reference/auth). That's independent of the API
+key: the dashboard authenticates with a session cookie, integrators authenticate
+with the key. See [Authentication](/docs/authentication).
+
+## Endpoint
+
+A URL you control, registered with `POST /endpoints`. Relay generates a signing
+secret for it (used to compute `X-Relay-Signature` on every delivery) and a default
+rate limit of 10 requests/second.
+
+An endpoint starts **unverified** and cannot be subscribed to anything until you
+verify it — see [Endpoint verification](/docs/webhooks/endpoint-verification).
+This exists so relay never sends events to a URL someone registered but doesn't
+actually control.
+
+## Topic
+
+A named channel — `order.created`, `user.deleted`, whatever fits your domain.
+Topics belong to an organization and their names are unique within it. Endpoints
+subscribe to topics; publishers publish to topics. Neither side needs to know
+about the other directly.
+
+## Subscription
+
+The link between a topic and an endpoint. Creating one requires the endpoint to
+already be verified. A topic can have many subscribed endpoints; an endpoint can
+be subscribed to many topics.
+
+## Event
+
+An immutable record of one publish to a topic (`POST /topics/{id}/events`). The
+payload is stored as-is and reused for every delivery generated from it.
+
+## Delivery
+
+One event, one subscribed endpoint. Publishing an event to a topic with *N*
+subscriptions creates *N* deliveries, each tracked and retried independently:
+
+```
+Topic "order.created"
+ ├─ Endpoint A (subscribed) ─▶ Delivery #1
+ └─ Endpoint B (subscribed) ─▶ Delivery #2
+
+POST /topics/1/events  ──▶  1 Event, 2 Deliveries
+```
+
+A delivery is always in one of three states:
+
+| Status | Meaning |
+|---|---|
+| `PENDING` | Not yet succeeded; either never attempted or scheduled to retry. |
+| `SUCCESS` | The endpoint responded 2xx. Terminal. |
+| `FAILED` | Every retry attempt was used without a 2xx response. Terminal, unless replayed. |
+
+A `FAILED` delivery can be reset back to `PENDING` with a fresh attempt budget via
+`POST /deliveries/{id}/replay` — see [Rate limits & retries](/docs/rate-limits-and-retries).
+
+## Audit log
+
+Every create/verify/subscribe/replay action is recorded against the organization
+that performed it, queryable via `GET /audit-logs`. Useful for answering "who
+subscribed this endpoint" after the fact.

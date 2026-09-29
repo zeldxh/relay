@@ -1,0 +1,62 @@
+---
+title: Deliveries
+description: Inspecting and replaying delivery attempts
+---
+
+All routes below require authentication and are scoped to the calling
+organization.
+
+## List deliveries
+
+`GET /deliveries`
+
+```bash
+curl "http://localhost:8080/deliveries?status=FAILED&page=0&size=20" \
+  -H "Authorization: Bearer $RELAY_API_KEY"
+```
+
+| Query param | Type | Required |
+|---|---|---|
+| `status` | `PENDING` \| `SUCCESS` \| `FAILED` | no — omit for all statuses |
+| `page` | integer | no, defaults to `0` |
+| `size` | integer | no, defaults to `20` |
+
+**200 OK**, paginated (see [pagination conventions](/docs/api-reference)):
+
+```json
+{
+  "content": [
+    {
+      "id": 1,
+      "eventId": 1,
+      "endpointId": 1,
+      "topic": "order.created",
+      "payload": "{\"orderId\":42,\"total\":19.99}",
+      "status": "SUCCESS",
+      "attemptCount": 1,
+      "maxAttempts": 8,
+      "nextAttemptAt": "2026-01-01T00:00:30Z",
+      "lastAttemptAt": "2026-01-01T00:00:00Z",
+      "lastResponseStatus": 200,
+      "createdAt": "2026-01-01T00:00:00Z"
+    }
+  ],
+  "totalElements": 1,
+  "totalPages": 1,
+  "number": 0,
+  "size": 20
+}
+```
+
+## Replay a delivery
+
+`POST /deliveries/{id}/replay`
+
+```bash
+curl -X POST http://localhost:8080/deliveries/1/replay \
+  -H "Authorization: Bearer $RELAY_API_KEY"
+```
+
+Resets `attemptCount` to `0` and `status` to `PENDING` for another full retry
+cycle. **200 OK** with the updated delivery. **409 Conflict** if the delivery
+isn't currently `FAILED`. See [Rate limits & retries](/docs/rate-limits-and-retries).

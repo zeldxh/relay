@@ -1,0 +1,47 @@
+---
+title: Introduction
+description: What relay is and how its pieces fit together
+---
+
+Relay is a multi-tenant webhook delivery service. You publish events to a **topic**,
+relay signs and fans them out to every **endpoint** subscribed to it, and retries
+automatically if an endpoint is down — so you don't have to build any of that
+yourself.
+
+## The core model
+
+<Cards>
+  <Card title="Organization" description="Your account. Owns everything below, isolated from every other organization by API key." />
+  <Card title="Endpoint" description="A URL you own, plus a per-endpoint signing secret and rate limit. Must be verified before it can receive anything." />
+  <Card title="Topic" description="A named channel, e.g. order.created. Endpoints subscribe to topics, not to each other." />
+  <Card title="Event" description="A single publish to a topic. Immutable once created." />
+  <Card title="Delivery" description="One event, one subscribed endpoint. Tracks status, attempt count, and the next retry time." />
+</Cards>
+
+Publishing one event to a topic with three subscribed endpoints creates three
+`Delivery` records — one per endpoint — each retried independently.
+
+## How delivery works
+
+1. You `POST` an event to a topic.
+2. Relay looks up every endpoint subscribed to that topic and creates one `Delivery`
+   per subscription.
+3. Each delivery is pushed onto a Redis stream for near-immediate dispatch, signed
+   with the endpoint's secret, and sent as an HTTP `POST`.
+4. A 2xx response marks it `SUCCESS`. Anything else — a non-2xx status, a timeout,
+   a connection failure — schedules a retry with exponential backoff.
+5. A backup poller scans for any delivery whose retry time has passed, so a delivery
+   is never stuck even if the fast path misses it (a deploy, a dropped connection).
+
+See [Rate limits & retries](/docs/rate-limits-and-retries) for the exact backoff
+schedule, and [Webhooks](/docs/webhooks) for endpoint verification and signature
+checking.
+
+## Where to go next
+
+<Cards>
+  <Card title="Installation" description="Get Postgres, Redis, the API, and the dashboard running locally." href="/docs/installation" />
+  <Card title="Quickstart" description="Get an API key and deliver your first event in a few minutes." href="/docs/quickstart" />
+  <Card title="API reference" description="Every endpoint, request and response shape." href="/docs/api-reference" />
+  <Card title="SDK" description="Node client for publishing events and verifying webhooks." href="/docs/sdk" />
+</Cards>
