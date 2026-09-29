@@ -1,0 +1,32 @@
+{
+  "name": "@zeldxh/relay-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Node.js client for the relay webhook delivery API: publish events and verify inbound webhook signatures.",
+  "type": "module",
+  "packageManager": "pnpm@11.22.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0",
+    "typescript": "^5",
+    "vitest": "^4.1.11"
+  }
+}
